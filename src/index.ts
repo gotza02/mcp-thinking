@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import express from "express";
 import { z } from "zod";
 import { SequentialThinkingServer } from './lib.js';
 import * as fs from 'fs/promises';
@@ -395,10 +396,31 @@ server.tool("get_project_graph_summary",
 );
 
 
-async function runServer() {
-    const transport = new StdioServerTransport();
+const app = express();
+
+let transport: SSEServerTransport | null = null;
+
+app.get("/sse", async (req, res) => {
+    console.log("New SSE connection established");
+    transport = new SSEServerTransport("/messages", res);
     await server.connect(transport);
-    console.error("Sequential Thinking MCP Server (Extended) running on stdio");
+});
+
+app.post("/messages", async (req, res) => {
+    if (!transport) {
+        res.status(400).send("No SSE connection established");
+        return;
+    }
+    await transport.handlePostMessage(req, res);
+});
+
+async function runServer() {
+    const port = process.env.PORT || 3000;
+    app.listen(port, () => {
+        console.error(`Sequential Thinking MCP Server (Extended) running on SSE at http://localhost:${port}`);
+        console.error(`- SSE endpoint: http://localhost:${port}/sse`);
+        console.error(`- Messages endpoint: http://localhost:${port}/messages`);
+    });
 }
 
 // --- New Tools v2026.1.27 ---
