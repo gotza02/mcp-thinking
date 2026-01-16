@@ -156,20 +156,48 @@ You should:
 
 // 1. web_search
 server.tool("web_search",
-    "Search the web using Brave or Exa APIs (requires API keys in environment variables: BRAVE_API_KEY or EXA_API_KEY).",
+    "Search the web using DuckDuckGo (no key), Brave or Exa APIs.",
     {
         query: z.string().describe("The search query"),
-        provider: z.enum(['brave', 'exa', 'google']).optional().describe("Preferred search provider")
+        provider: z.enum(['duckduckgo', 'brave', 'exa', 'google']).optional().describe("Preferred search provider")
     },
     async ({ query, provider }) => {
         try {
-            // Priority: User Preference > Brave > Exa > Google
             let selectedProvider = provider;
             if (!selectedProvider) {
                 if (process.env.BRAVE_API_KEY) selectedProvider = 'brave';
                 else if (process.env.EXA_API_KEY) selectedProvider = 'exa';
                 else if (process.env.GOOGLE_SEARCH_API_KEY) selectedProvider = 'google';
-                else return { content: [{ type: "text", text: "Error: No search provider configured. Please set BRAVE_API_KEY, EXA_API_KEY, or GOOGLE_SEARCH_API_KEY." }], isError: true };
+                else selectedProvider = 'duckduckgo';
+            }
+
+            if (selectedProvider === 'duckduckgo') {
+                const response = await fetchWithRetry(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
+                if (!response.ok) throw new Error(`DuckDuckGo error: ${response.statusText}`);
+                const html = await response.text();
+                const dom = new JSDOM(html);
+                const doc = dom.window.document;
+                
+                const results: any[] = [];
+                const links = doc.querySelectorAll('.result__body');
+                
+                links.forEach((link, index) => {
+                    if (index < 5) {
+                        const titleEl = link.querySelector('.result__a');
+                        const snippetEl = link.querySelector('.result__snippet');
+                        const url = titleEl?.getAttribute('href');
+                        
+                        if (titleEl && url) {
+                            results.push({
+                                title: titleEl.textContent?.trim(),
+                                link: url.startsWith('//') ? `https:${url}` : url,
+                                snippet: snippetEl?.textContent?.trim()
+                            });
+                        }
+                    }
+                });
+
+                return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
             }
 
             if (selectedProvider === 'brave') {
